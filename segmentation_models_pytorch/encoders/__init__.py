@@ -46,7 +46,16 @@ encoders.update(timm_gernet_encoders)
 encoders.update(mix_transformer_encoders)
 
 
-def get_encoder(name, in_channels=3, depth=5, weights=None, output_stride=32, **kwargs):
+def get_encoder(
+    name,
+    in_channels=3,
+    depth=5,
+    weights=None,
+    output_stride=32,
+    encoder_attention_type=None,
+    encoder_attention_reduction=None,
+    **kwargs,
+):
 
     if name.startswith("tu-"):
         name = name[3:]
@@ -67,6 +76,12 @@ def get_encoder(name, in_channels=3, depth=5, weights=None, output_stride=32, **
 
     params = encoders[name]["params"]
     params.update(depth=depth)
+
+    # CBAM only for ResNet
+    if "resnet" in name:
+        params.update(encoder_attention_type=encoder_attention_type)
+        params.update(encoder_attention_reduction=encoder_attention_reduction)
+
     encoder = Encoder(**params)
 
     if weights is not None:

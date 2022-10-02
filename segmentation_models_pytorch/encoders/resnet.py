@@ -31,15 +31,41 @@ from torchvision.models.resnet import BasicBlock
 from torchvision.models.resnet import Bottleneck
 from pretrainedmodels.models.torchvision_models import pretrained_settings
 
+from segmentation_models_pytorch.base.modules import Attention
+
 from ._base import EncoderMixin
 
 
+def build_encoder_attention_layers(encoder_attention, encoder_attention_reduction, out_channels):
+    encoder_attn_layers = nn.ModuleList()
+
+    for reduction, channels in zip(encoder_attention_reduction, out_channels):
+        if reduction is None:
+            encoder_attn_layers.append(nn.Identity())
+        else:
+            attention = Attention(encoder_attention, reduction=reduction, in_channels=channels)
+            encoder_attn_layers.append(attention)
+
+    return encoder_attn_layers
+
+
 class ResNetEncoder(ResNet, EncoderMixin):
-    def __init__(self, out_channels, depth=5, **kwargs):
+    def __init__(self, out_channels, depth=5, encoder_attention_type=None, encoder_attention_reduction=None, **kwargs):
         super().__init__(**kwargs)
         self._depth = depth
         self._out_channels = out_channels
         self._in_channels = 3
+
+        self._encoder_attention = encoder_attention_type
+        self._encoder_attention_reduction = encoder_attention_reduction
+        self._encoder_attention_layers = (
+            None
+            if encoder_attention_reduction is None
+            else build_encoder_attention_layers(encoder_attention_type, encoder_attention_reduction, out_channels)
+        )
+
+        if self._encoder_attention_layers:
+            assert len(self._encoder_attention_layers) == self._depth + 1
 
         del self.fc
         del self.avgpool
@@ -60,6 +86,10 @@ class ResNetEncoder(ResNet, EncoderMixin):
         features = []
         for i in range(self._depth + 1):
             x = stages[i](x)
+
+            if self._encoder_attention_layers is not None:
+                x = self._encoder_attention_layers[i](x)
+
             features.append(x)
 
         return features
@@ -67,7 +97,9 @@ class ResNetEncoder(ResNet, EncoderMixin):
     def load_state_dict(self, state_dict, **kwargs):
         state_dict.pop("fc.bias", None)
         state_dict.pop("fc.weight", None)
-        super().load_state_dict(state_dict, **kwargs)
+
+        strict = True if self._encoder_attention is None else False
+        super().load_state_dict(state_dict, strict=strict, **kwargs)
 
 
 new_settings = {
