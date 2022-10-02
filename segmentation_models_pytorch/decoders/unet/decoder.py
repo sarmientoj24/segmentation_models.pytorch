@@ -7,12 +7,7 @@ from segmentation_models_pytorch.base import modules as md
 
 class DecoderBlock(nn.Module):
     def __init__(
-        self,
-        in_channels,
-        skip_channels,
-        out_channels,
-        use_batchnorm=True,
-        attention_type=None,
+        self, in_channels, skip_channels, out_channels, use_batchnorm=True, attention_type=None, reduction=16
     ):
         super().__init__()
         self.conv1 = md.Conv2dReLU(
@@ -22,7 +17,7 @@ class DecoderBlock(nn.Module):
             padding=1,
             use_batchnorm=use_batchnorm,
         )
-        self.attention1 = md.Attention(attention_type, in_channels=in_channels + skip_channels)
+        self.attention1 = md.Attention(attention_type, in_channels=in_channels + skip_channels, reduction=reduction)
         self.conv2 = md.Conv2dReLU(
             out_channels,
             out_channels,
@@ -30,7 +25,7 @@ class DecoderBlock(nn.Module):
             padding=1,
             use_batchnorm=use_batchnorm,
         )
-        self.attention2 = md.Attention(attention_type, in_channels=out_channels)
+        self.attention2 = md.Attention(attention_type, in_channels=out_channels, reduction=reduction)
 
     def forward(self, x, skip=None):
         x = F.interpolate(x, scale_factor=2, mode="nearest")
@@ -70,6 +65,7 @@ class UnetDecoder(nn.Module):
         n_blocks=5,
         use_batchnorm=True,
         attention_type=None,
+        decoder_attention_reduction=None,
         center=False,
     ):
         super().__init__()
@@ -92,6 +88,12 @@ class UnetDecoder(nn.Module):
         skip_channels = list(encoder_channels[1:]) + [0]
         out_channels = decoder_channels
 
+        decoder_attention_channels = (
+            decoder_attention_reduction if decoder_attention_reduction is not None else [None] * len(out_channels)
+        )
+
+        assert len(out_channels) == len(decoder_attention_channels)
+
         if center:
             self.center = CenterBlock(head_channels, head_channels, use_batchnorm=use_batchnorm)
         else:
@@ -100,8 +102,10 @@ class UnetDecoder(nn.Module):
         # combine decoder keyword arguments
         kwargs = dict(use_batchnorm=use_batchnorm, attention_type=attention_type)
         blocks = [
-            DecoderBlock(in_ch, skip_ch, out_ch, **kwargs)
-            for in_ch, skip_ch, out_ch in zip(in_channels, skip_channels, out_channels)
+            DecoderBlock(in_ch, skip_ch, out_ch, reduction=reduction, **kwargs)
+            for in_ch, skip_ch, out_ch, reduction in zip(
+                in_channels, skip_channels, out_channels, decoder_attention_channels
+            )
         ]
         self.blocks = nn.ModuleList(blocks)
 
