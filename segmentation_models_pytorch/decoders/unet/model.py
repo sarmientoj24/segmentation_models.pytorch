@@ -58,7 +58,6 @@ class Unet(SegmentationModel):
         encoder_name: str = "resnet34",
         encoder_depth: int = 5,
         encoder_weights: Optional[str] = "imagenet",
-        encoder_attention_type: Optional[str] = None,
         encoder_attention_reduction: Optional[List] = None,
         decoder_use_batchnorm: bool = True,
         decoder_channels: List[int] = (256, 128, 64, 32, 16),
@@ -76,7 +75,6 @@ class Unet(SegmentationModel):
             in_channels=in_channels,
             depth=encoder_depth,
             weights=encoder_weights,
-            encoder_attention_type=encoder_attention_type,
             encoder_attention_reduction=encoder_attention_reduction,
         )
 

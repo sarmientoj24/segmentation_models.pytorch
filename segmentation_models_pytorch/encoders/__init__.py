@@ -52,7 +52,6 @@ def get_encoder(
     depth=5,
     weights=None,
     output_stride=32,
-    encoder_attention_type=None,
     encoder_attention_reduction=None,
     **kwargs,
 ):
@@ -78,8 +77,7 @@ def get_encoder(
     params.update(depth=depth)
 
     # CBAM only for ResNet
-    if "resnet" in name:
-        params.update(encoder_attention_type=encoder_attention_type)
+    if "cbam" in name:
         params.update(encoder_attention_reduction=encoder_attention_reduction)
 
     encoder = Encoder(**params)
