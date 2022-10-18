@@ -31,41 +31,30 @@ from torchvision.models.resnet import BasicBlock
 from torchvision.models.resnet import Bottleneck
 from pretrainedmodels.models.torchvision_models import pretrained_settings
 
-from segmentation_models_pytorch.base.modules import Attention
+from segmentation_models_pytorch.encoders.resnet_cbam import BasicBlockCBAM, BottleneckCBAM, ResNetCBAM
 
 from ._base import EncoderMixin
 
 
-def build_encoder_attention_layers(encoder_attention, encoder_attention_reduction, out_channels):
-    encoder_attn_layers = nn.ModuleList()
+# def build_encoder_attention_layers(encoder_attention, encoder_attention_reduction, out_channels):
+#     encoder_attn_layers = nn.ModuleList()
 
-    for reduction, channels in zip(encoder_attention_reduction, out_channels):
-        if reduction is None:
-            encoder_attn_layers.append(nn.Identity())
-        else:
-            attention = Attention(encoder_attention, reduction=reduction, in_channels=channels)
-            encoder_attn_layers.append(attention)
+#     for reduction, channels in zip(encoder_attention_reduction, out_channels):
+#         if reduction is None:
+#             encoder_attn_layers.append(nn.Identity())
+#         else:
+#             attention = Attention(encoder_attention, reduction=reduction, in_channels=channels)
+#             encoder_attn_layers.append(attention)
 
-    return encoder_attn_layers
+#     return encoder_attn_layers
 
 
 class ResNetEncoder(ResNet, EncoderMixin):
-    def __init__(self, out_channels, depth=5, encoder_attention_type=None, encoder_attention_reduction=None, **kwargs):
+    def __init__(self, out_channels, depth=5, **kwargs):
         super().__init__(**kwargs)
         self._depth = depth
         self._out_channels = out_channels
         self._in_channels = 3
-
-        self._encoder_attention = encoder_attention_type
-        self._encoder_attention_reduction = encoder_attention_reduction
-        self._encoder_attention_layers = (
-            None
-            if encoder_attention_reduction is None
-            else build_encoder_attention_layers(encoder_attention_type, encoder_attention_reduction, out_channels)
-        )
-
-        if self._encoder_attention_layers:
-            assert len(self._encoder_attention_layers) == self._depth + 1
 
         del self.fc
         del self.avgpool
@@ -86,10 +75,6 @@ class ResNetEncoder(ResNet, EncoderMixin):
         features = []
         for i in range(self._depth + 1):
             x = stages[i](x)
-
-            if self._encoder_attention_layers is not None:
-                x = self._encoder_attention_layers[i](x)
-
             features.append(x)
 
         return features
@@ -99,6 +84,46 @@ class ResNetEncoder(ResNet, EncoderMixin):
         state_dict.pop("fc.weight", None)
 
         strict = True if self._encoder_attention is None else False
+        super().load_state_dict(state_dict, strict=strict, **kwargs)
+
+
+class ResNetEncoderCBAM(ResNetCBAM, EncoderMixin):
+    def __init__(self, out_channels, depth=5, encoder_attention_reduction=None, **kwargs):
+        assert encoder_attention_reduction is not None
+        super().__init__(reduction_ratios=encoder_attention_reduction, **kwargs)
+
+        self._depth = depth
+        self._out_channels = out_channels
+        self._in_channels = 3
+
+        del self.fc
+        del self.avgpool
+
+    def get_stages(self):
+        return [
+            nn.Identity(),
+            nn.Sequential(self.conv1, self.bn1, self.cbam0, self.relu),
+            nn.Sequential(self.maxpool, self.layer1),
+            self.layer2,
+            self.layer3,
+            self.layer4,
+        ]
+
+    def forward(self, x):
+        stages = self.get_stages()
+
+        features = []
+        for i in range(self._depth + 1):
+            x = stages[i](x)
+            features.append(x)
+
+        return features
+
+    def load_state_dict(self, state_dict, **kwargs):
+        state_dict.pop("fc.bias", None)
+        state_dict.pop("fc.weight", None)
+
+        strict = False
         super().load_state_dict(state_dict, strict=strict, **kwargs)
 
 
@@ -136,6 +161,15 @@ new_settings = {
     },
     "resnext101_32x48d": {
         "instagram": "https://download.pytorch.org/models/ig_resnext101_32x48-3e41cc8a.pth",
+    },
+    ### CBAM
+    "resnet18_cbam": {
+        "ssl": "https://dl.fbaipublicfiles.com/semiweaksupervision/model_files/semi_supervised_resnet18-d92f0530.pth",  # noqa
+        "swsl": "https://dl.fbaipublicfiles.com/semiweaksupervision/model_files/semi_weakly_supervised_resnet18-118f1556.pth",  # noqa
+    },
+    "resnet50_cbam": {
+        "ssl": "https://dl.fbaipublicfiles.com/semiweaksupervision/model_files/semi_supervised_resnet50-08389792.pth",  # noqa
+        "swsl": "https://dl.fbaipublicfiles.com/semiweaksupervision/model_files/semi_weakly_supervised_resnet50-16a12f1b.pth",  # noqa
     },
 }
 
@@ -265,6 +299,34 @@ resnet_encoders = {
             "layers": [3, 4, 23, 3],
             "groups": 32,
             "width_per_group": 48,
+        },
+    },
+    ### CBAM only available for resnet18, resnet34, resnet50 for now
+    "resnet18_cbam": {
+        "encoder": ResNetEncoderCBAM,
+        "pretrained_settings": pretrained_settings["resnet18"],
+        "params": {
+            "out_channels": (3, 64, 64, 128, 256, 512),
+            "block": BasicBlockCBAM,
+            "layers": [2, 2, 2, 2],
+        },
+    },
+    "resnet34_cbam": {
+        "encoder": ResNetEncoderCBAM,
+        "pretrained_settings": pretrained_settings["resnet34"],
+        "params": {
+            "out_channels": (3, 64, 64, 128, 256, 512),
+            "block": BasicBlockCBAM,
+            "layers": [3, 4, 6, 3],
+        },
+    },
+    "resnet50_cbam": {
+        "encoder": ResNetEncoderCBAM,
+        "pretrained_settings": pretrained_settings["resnet50"],
+        "params": {
+            "out_channels": (3, 64, 256, 512, 1024, 2048),
+            "block": BottleneckCBAM,
+            "layers": [3, 4, 6, 3],
         },
     },
 }
